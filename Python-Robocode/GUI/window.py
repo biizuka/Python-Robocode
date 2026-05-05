@@ -17,7 +17,8 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QMessageBox
 )
-from PyQt6.QtCore import pyqtSlot, QTimer
+from PyQt6.QtCore import pyqtSlot, QTimer, Qt
+from PyQt6.QtGui import QColor, QBrush
 
 from graph import Graph
 from Ui_window import Ui_MainWindow
@@ -39,8 +40,100 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         self.countBattle = 0
         self.timer = QTimer()
+
+        # Configuração visual da tabela de resultados
+        self.tableWidget.setColumnCount(7)
+        self.tableWidget.setHorizontalHeaderLabels([
+            "Rank",
+            "Name",
+            "1st",
+            "2nd",
+            "3rd",
+            "Points",
+            "Kills"
+        ])
+
         self.tableWidget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        # Esconde a numeração lateral automática da tabela,
+        # porque agora teremos a coluna Rank.
+        self.tableWidget.verticalHeader().setVisible(False)
+
+        # Mantém a ordem calculada pelo ranking, sem reordenar automaticamente.
+        self.tableWidget.setSortingEnabled(False)
+
         self.tableWidget.hide()
+
+    def createResultItem(self, text, rank=None, align_center=True):
+        item = QTableWidgetItem(str(text))
+
+        if align_center:
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        if rank == 1:
+            # 1º lugar - amarelo claro
+            item.setBackground(QBrush(QColor(255, 245, 180)))
+
+        elif rank == 2:
+            # 2º lugar - cinza claro
+            item.setBackground(QBrush(QColor(225, 225, 225)))
+
+        elif rank == 3:
+            # 3º lugar - bronze claro
+            item.setBackground(QBrush(QColor(224, 198, 156)))
+
+        return item
+
+    def showStatisticsTable(self):
+        self.graphicsView.hide()
+        self.tableWidget.show()
+
+        self.tableWidget.clearContents()
+        self.tableWidget.setRowCount(len(self.statisticDico))
+        self.tableWidget.setSortingEnabled(False)
+
+        ranking = sorted(
+            self.statisticDico.items(),
+            key=lambda item: (
+                -item[1].points,
+                -item[1].first,
+                -item[1].second,
+                -item[1].third,
+                -item[1].kills,
+                item[0]
+            )
+        )
+
+        for i, (key, value) in enumerate(ranking):
+            rank = i + 1
+
+            self.tableWidget.setItem(
+                i, 0, self.createResultItem(rank, rank)
+            )
+
+            self.tableWidget.setItem(
+                i, 1, self.createResultItem(key, rank, align_center=False)
+            )
+
+            self.tableWidget.setItem(
+                i, 2, self.createResultItem(value.first, rank)
+            )
+
+            self.tableWidget.setItem(
+                i, 3, self.createResultItem(value.second, rank)
+            )
+
+            self.tableWidget.setItem(
+                i, 4, self.createResultItem(value.third, rank)
+            )
+
+            self.tableWidget.setItem(
+                i, 5, self.createResultItem(value.points, rank)
+            )
+
+            self.tableWidget.setItem(
+                i, 6, self.createResultItem(value.kills, rank)
+            )
 
     def reimport_class(self, cls):
         """
@@ -51,6 +144,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         reload(mod)
 
         return getattr(mod, cls.__name__)
+
 
     @pyqtSlot()
     def on_pushButton_clicked(self):
@@ -194,30 +288,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def chooseAction(self):
         if self.countBattle >= self.spinBox_battle_num.value():
-            self.graphicsView.hide()
-            self.tableWidget.show()
-
-            self.tableWidget.setRowCount(len(self.statisticDico))
-
-            ranking = sorted(
-                self.statisticDico.items(),
-                key=lambda item: (
-                    -item[1].points,
-                    -item[1].first,
-                    -item[1].second,
-                    -item[1].third,
-                    -item[1].kills,
-                    item[0]
-                )
-            )
-
-            for i, (key, value) in enumerate(ranking):
-                self.tableWidget.setItem(i, 0, QTableWidgetItem(key))
-                self.tableWidget.setItem(i, 1, QTableWidgetItem(str(value.first)))
-                self.tableWidget.setItem(i, 2, QTableWidgetItem(str(value.second)))
-                self.tableWidget.setItem(i, 3, QTableWidgetItem(str(value.third)))
-                self.tableWidget.setItem(i, 4, QTableWidgetItem(str(value.points)))
-                self.tableWidget.setItem(i, 5, QTableWidgetItem(str(value.kills)))
+            self.showStatisticsTable()
 
             self.countBattle = 0
             self.timer.stop()
@@ -226,31 +297,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             iniciou = self.startBattle()
 
             if not iniciou:
-                self.graphicsView.hide()
-                self.tableWidget.show()
-
-                self.tableWidget.setRowCount(len(self.statisticDico))
-
-                ranking = sorted(
-                    self.statisticDico.items(),
-                    key=lambda item: (
-                        -item[1].points,
-                        -item[1].first,
-                        -item[1].second,
-                        -item[1].third,
-                        -item[1].kills,
-                        item[0]
-                    )
-                )
-
-                for i, (key, value) in enumerate(ranking):
-                    self.tableWidget.setItem(i, 0, QTableWidgetItem(key))
-                    self.tableWidget.setItem(i, 1, QTableWidgetItem(str(value.first)))
-                    self.tableWidget.setItem(i, 2, QTableWidgetItem(str(value.second)))
-                    self.tableWidget.setItem(i, 3, QTableWidgetItem(str(value.third)))
-                    self.tableWidget.setItem(i, 4, QTableWidgetItem(str(value.points)))
-                    self.tableWidget.setItem(i, 5, QTableWidgetItem(str(value.kills)))
-
+                self.showStatisticsTable()
                 self.countBattle = 0
             
     def repres(self, bot):
