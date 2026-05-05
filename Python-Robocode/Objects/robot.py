@@ -4,8 +4,14 @@
 import time, os, math
 import traceback
 
-from PyQt6.QtWidgets import QGraphicsItemGroup, QGraphicsPixmapItem, QGraphicsRectItem
-from PyQt6.QtGui import QPixmap, QColor, QPainter, QIcon
+from PyQt6.QtWidgets import (
+    QGraphicsItemGroup,
+    QGraphicsPixmapItem,
+    QGraphicsRectItem,
+    QGraphicsSimpleTextItem
+)
+
+from PyQt6.QtGui import QPixmap, QColor, QPainter, QIcon, QFont
 from PyQt6.QtCore import QPointF, Qt
 
 from physics import physics
@@ -47,6 +53,22 @@ class Robot(QGraphicsItemGroup):
         self.addToGroup(self.__base)
         self.__baseWidth = self.__base.boundingRect().width()
         self.__baseHeight = self.__base.boundingRect().height()
+
+        # robot name above the tank
+        self.__nameLabel = QGraphicsSimpleTextItem(self.__repr__())
+        self.__nameLabel.setFont(QFont("Arial", 9))
+        self.__nameLabel.setBrush(QColor(255, 255, 255))  # texto branco
+        self.__nameLabel.setZValue(100)
+
+        # Centralize the name above the tank
+        label_width = self.__nameLabel.boundingRect().width()
+
+        self.__nameLabel.setPos(
+            (self.__baseWidth - label_width) / 2,
+            -18
+        )
+
+        self.addToGroup(self.__nameLabel)
         
         #load gun img
         self.__gun = QGraphicsPixmapItem()
@@ -142,7 +164,17 @@ class Robot(QGraphicsItemGroup):
 
         
         #add self items in items to avoid collisions
-        self.__items = set([self, self.__base, self.__gun, self.__radar, self.__radarField, self.__largeRadarField, self.__thinRadarField, self.__roundRadarField])
+        self.__items = set([
+            self,
+            self.__base,
+            self.__gun,
+            self.__radar,
+            self.__radarField,
+            self.__largeRadarField,
+            self.__thinRadarField,
+            self.__roundRadarField,
+            self.__nameLabel
+        ])
         
         #init the subclassed Bot
         self.init()
