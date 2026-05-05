@@ -10,7 +10,13 @@ import re
 
 from importlib import reload
 
-from PyQt6.QtWidgets import QMainWindow, QGraphicsScene, QHeaderView, QTableWidgetItem
+from PyQt6.QtWidgets import (
+    QMainWindow,
+    QGraphicsScene,
+    QHeaderView,
+    QTableWidgetItem,
+    QMessageBox
+)
 from PyQt6.QtCore import pyqtSlot, QTimer
 
 from graph import Graph
@@ -79,16 +85,35 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.tableWidget.clearContents()
         self.tableWidget.hide()
         self.graphicsView.show()
+
         self.width = width
         self.height = height
         self.botList = botList
-        self.statisticDico={}
+
+        self.statisticDico = {}
+
         for bot in botList:
             self.statisticDico[self.repres(bot)] = statistic()
+
         self.startBattle()
-        
+
     def startBattle(self):
-        
+        try:
+            self.timer.stop()
+        except:
+            pass
+
+        resposta = QMessageBox.question(
+            self,
+            "Start Battle",
+            "Ready to start?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+
+        if resposta == QMessageBox.StandardButton.No:
+            return False
+
         try:
             self.timer.timeout.disconnect(self.scene.advance)
             del self.timer
@@ -96,17 +121,24 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             del self.sceneMenu
         except:
             pass
-            
+
         self.timer = QTimer()
         self.countBattle += 1
+
         self.sceneMenu = QGraphicsScene()
         self.graphicsView_2.setScene(self.sceneMenu)
-        self.scene = Graph(self,  self.width,  self.height)
+
+        self.scene = Graph(self, self.width, self.height)
         self.graphicsView.setScene(self.scene)
+
         self.scene.AddRobots(self.botList)
+
         self.timer.timeout.connect(self.scene.advance)
-        self.timer.start((self.hslider_game_speed.value()**2)//100)
+        self.timer.start((self.hslider_game_speed.value() ** 2) // 100)
+
         self.resizeEvent()
+
+        return True
     
     @pyqtSlot(int)
     def on_horizontalSlider_valueChanged(self, value):
@@ -159,12 +191,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         l = (len(self.scene.aliveBots) )
         self.sceneMenu.setSceneRect(0, 0, 170, l*80)
         p.setPos(0, (l -1)*80)
-        
+
     def chooseAction(self):
         if self.countBattle >= self.spinBox_battle_num.value():
-            "Menu Statistic"
             self.graphicsView.hide()
             self.tableWidget.show()
+
             self.tableWidget.setRowCount(len(self.statisticDico))
 
             ranking = sorted(
@@ -186,11 +218,40 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.tableWidget.setItem(i, 3, QTableWidgetItem(str(value.third)))
                 self.tableWidget.setItem(i, 4, QTableWidgetItem(str(value.points)))
                 self.tableWidget.setItem(i, 5, QTableWidgetItem(str(value.kills)))
-                
+
             self.countBattle = 0
             self.timer.stop()
+
         else:
-            self.startBattle()
+            iniciou = self.startBattle()
+
+            if not iniciou:
+                self.graphicsView.hide()
+                self.tableWidget.show()
+
+                self.tableWidget.setRowCount(len(self.statisticDico))
+
+                ranking = sorted(
+                    self.statisticDico.items(),
+                    key=lambda item: (
+                        -item[1].points,
+                        -item[1].first,
+                        -item[1].second,
+                        -item[1].third,
+                        -item[1].kills,
+                        item[0]
+                    )
+                )
+
+                for i, (key, value) in enumerate(ranking):
+                    self.tableWidget.setItem(i, 0, QTableWidgetItem(key))
+                    self.tableWidget.setItem(i, 1, QTableWidgetItem(str(value.first)))
+                    self.tableWidget.setItem(i, 2, QTableWidgetItem(str(value.second)))
+                    self.tableWidget.setItem(i, 3, QTableWidgetItem(str(value.third)))
+                    self.tableWidget.setItem(i, 4, QTableWidgetItem(str(value.points)))
+                    self.tableWidget.setItem(i, 5, QTableWidgetItem(str(value.kills)))
+
+                self.countBattle = 0
             
     def repres(self, bot):
         repres = repr(bot).split(".")
