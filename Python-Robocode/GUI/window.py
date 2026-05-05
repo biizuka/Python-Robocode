@@ -166,17 +166,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.graphicsView.hide()
             self.tableWidget.show()
             self.tableWidget.setRowCount(len(self.statisticDico))
-            i = 0
-            for key, value in self.statisticDico.items():
-                self.tableWidget.setItem(i, 0,  QTableWidgetItem(key))
-                self.tableWidget.setItem(i, 1,  QTableWidgetItem(str(value.first)))
-                self.tableWidget.setItem(i, 2,  QTableWidgetItem(str(value.second)))
-                self.tableWidget.setItem(i, 3,  QTableWidgetItem(str(value.third)))
-                self.tableWidget.setItem(i, 4,  QTableWidgetItem(str(value.points)))
-                self.tableWidget.setItem(i, 5,  QTableWidgetItem(str(value.kills)))
-               
-                i += 1
-                
+
+            ranking = sorted(
+                self.statisticDico.items(),
+                key=lambda item: (
+                    -item[1].points,
+                    -item[1].first,
+                    -item[1].second,
+                    -item[1].third,
+                    -item[1].kills,
+                    item[0]
+                )
+            )
+
+            for i, (key, value) in enumerate(ranking):
+                self.tableWidget.setItem(i, 0, QTableWidgetItem(key))
+                self.tableWidget.setItem(i, 1, QTableWidgetItem(str(value.first)))
+                self.tableWidget.setItem(i, 2, QTableWidgetItem(str(value.second)))
+                self.tableWidget.setItem(i, 3, QTableWidgetItem(str(value.third)))
+                self.tableWidget.setItem(i, 4, QTableWidgetItem(str(value.points)))
+                self.tableWidget.setItem(i, 5, QTableWidgetItem(str(value.kills)))
                 
             self.countBattle = 0
             self.timer.stop()
