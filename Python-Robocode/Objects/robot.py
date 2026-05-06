@@ -69,6 +69,22 @@ class Robot(QGraphicsItemGroup):
         )
 
         self.addToGroup(self.__nameLabel)
+
+        # HP abaixo do tanque
+        self.__hpLabel = QGraphicsSimpleTextItem("HP: 100")
+        self.__hpLabel.setFont(QFont("Arial", 8))
+        self.__hpLabel.setBrush(QColor(255, 255, 255))  # texto branco
+        self.__hpLabel.setZValue(100)
+
+        label_width = self.__hpLabel.boundingRect().width()
+
+        self.__hpLabel.setPos(
+            (self.__baseWidth - label_width) / 2,
+            self.__baseHeight + 2
+        )
+
+        self.addToGroup(self.__hpLabel)
+
         
         #load gun img
         self.__gun = QGraphicsPixmapItem()
@@ -173,7 +189,8 @@ class Robot(QGraphicsItemGroup):
             self.__largeRadarField,
             self.__thinRadarField,
             self.__roundRadarField,
-            self.__nameLabel
+            self.__nameLabel,
+            self.__hpLabel
         ])
         
         #init the subclassed Bot
@@ -595,14 +612,41 @@ class Robot(QGraphicsItemGroup):
             target.robot.__physics.animation = target.robot.__runAnimation
             target.robot.__currentAnimation =  anim
 
-        
+    def __updateHealthLabel(self):
+        try:
+            hp = max(0, int(self.__health))
+
+            self.__hpLabel.setText("HP: " + str(hp))
+
+            label_width = self.__hpLabel.boundingRect().width()
+
+            self.__hpLabel.setPos(
+                (self.__baseWidth - label_width) / 2,
+                self.__baseHeight + 2
+            )
+
+        except:
+            pass
+
     def __changeHealth(self, bot, value):
-        if bot.__health + value>=100:
+        new_health = bot.__health + value
+
+        if new_health >= 100:
             bot.__health = 100
+
+        elif new_health <= 0:
+            bot.__health = 0
+
         else:
-            bot.__health = bot.__health + value
+            bot.__health = new_health
+
         try:
             bot.progressBar.setValue(bot.__health)
+        except:
+            pass
+
+        try:
+            bot.__updateHealthLabel()
         except:
             pass
             
