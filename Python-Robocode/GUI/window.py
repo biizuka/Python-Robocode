@@ -7,7 +7,8 @@ Module implementing MainWindow.
 import os
 import pickle
 import re
-
+import csv
+from datetime import datetime
 from importlib import reload
 
 from PyQt6.QtWidgets import (
@@ -40,6 +41,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         self.countBattle = 0
         self.timer = QTimer()
+        self.competitionStartTime = None
 
         # Configuração visual da tabela de resultados
         self.tableWidget.setColumnCount(7)
@@ -92,17 +94,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.tableWidget.setRowCount(len(self.statisticDico))
         self.tableWidget.setSortingEnabled(False)
 
-        ranking = sorted(
-            self.statisticDico.items(),
-            key=lambda item: (
-                -item[1].points,
-                -item[1].first,
-                -item[1].second,
-                -item[1].third,
-                -item[1].kills,
-                item[0]
-            )
-        )
+        ranking = self.getRanking()
 
         for i, (key, value) in enumerate(ranking):
             rank = i + 1
@@ -188,6 +180,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         for bot in botList:
             self.statisticDico[self.repres(bot)] = statistic()
+
+        self.competitionStartTime = datetime.now()
 
         self.startBattle()
 
@@ -286,9 +280,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.sceneMenu.setSceneRect(0, 0, 170, l*80)
         p.setPos(0, (l -1)*80)
 
+
     def chooseAction(self):
         if self.countBattle >= self.spinBox_battle_num.value():
             self.showStatisticsTable()
+            self.exportRankingToCSV()
 
             self.countBattle = 0
             self.timer.stop()
@@ -298,8 +294,72 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             if not iniciou:
                 self.showStatisticsTable()
+                self.exportRankingToCSV()
                 self.countBattle = 0
-            
+
+
     def repres(self, bot):
         repres = repr(bot).split(".")
         return repres[1].replace("'>", "")
+
+
+    def getRanking(self):
+        ranking = sorted(
+            self.statisticDico.items(),
+            key=lambda item: (
+                -item[1].points,
+                -item[1].first,
+                -item[1].second,
+                -item[1].third,
+                -item[1].kills,
+                item[0]
+            )
+        )
+
+        return ranking
+
+    def exportRankingToCSV(self):
+        if self.competitionStartTime is None:
+            self.competitionStartTime = datetime.now()
+
+        date_time_text = self.competitionStartTime.strftime("%Y-%m-%d_%H-%M-%S")
+
+        results_folder = os.path.join(os.getcwd(), "results")
+
+        if not os.path.exists(results_folder):
+            os.makedirs(results_folder)
+
+        file_name = f"ranking_competition_{date_time_text}.csv"
+        file_path = os.path.join(results_folder, file_name)
+
+        ranking = self.getRanking()
+
+        with open(file_path, mode="w", newline="", encoding="utf-8-sig") as csv_file:
+            writer = csv.writer(csv_file, delimiter=";")
+
+            writer.writerow([
+                "Rank",
+                "Name",
+                "1st",
+                "2nd",
+                "3rd",
+                "Points",
+                "Kills"
+            ])
+
+            for i, (name, value) in enumerate(ranking):
+                rank = i + 1
+
+                writer.writerow([
+                    rank,
+                    name,
+                    value.first,
+                    value.second,
+                    value.third,
+                    value.points,
+                    value.kills
+                ])
+
+        print(f"Ranking CSV generated: {file_path}")
+
+        return file_path
