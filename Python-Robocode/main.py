@@ -16,5 +16,5 @@ if __name__ == "__main__":
    app = QApplication(sys.argv)
    app.setApplicationName("Python-Robocode")
    myapp = MainWindow()
-   myapp.show()
+   myapp.showMaximized()
    sys.exit(app.exec())
