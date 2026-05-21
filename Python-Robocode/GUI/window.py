@@ -191,10 +191,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         except:
             pass
 
+        proxima_batalha = self.countBattle + 1
+        total_batalhas = self.spinBox_battle_num.value()
+
         resposta = QMessageBox.question(
             self,
             "Start Battle",
-            "Ready to start?",
+            f"Ready to start?\n\nBattle {proxima_batalha} of {total_batalhas}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes
         )
@@ -212,6 +215,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.timer = QTimer()
         self.countBattle += 1
+
+        total_batalhas = self.spinBox_battle_num.value()
+
+        self.setWindowTitle(
+            f"Python-Robocode - Battle {self.countBattle} of {total_batalhas}"
+        )
+
+        self.statusBar().showMessage(
+            f"Battle {self.countBattle} of {total_batalhas}"
+        )
 
         self.sceneMenu = QGraphicsScene()
         self.graphicsView_2.setScene(self.sceneMenu)
@@ -285,6 +298,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if self.countBattle >= self.spinBox_battle_num.value():
             self.showStatisticsTable()
             self.exportRankingToCSV()
+
+            total_batalhas = self.spinBox_battle_num.value()
+
+            self.setWindowTitle(
+                f"Python-Robocode - Tournament finished"
+            )
+
+            self.statusBar().showMessage(
+                f"Tournament finished - {total_batalhas} battles completed"
+            )
 
             self.countBattle = 0
             self.timer.stop()
