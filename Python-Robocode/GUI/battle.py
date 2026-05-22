@@ -7,7 +7,7 @@ Module implementing Battle.
 import os
 import pickle
 
-from PyQt6.QtWidgets import QDialog
+from PyQt6.QtWidgets import QDialog, QPushButton
 from PyQt6.QtCore import pyqtSlot
 
 from robot import Robot
@@ -23,6 +23,11 @@ class Battle(QDialog, Ui_Dialog):
         """
         QDialog.__init__(self, parent)
         self.setupUi(self)
+
+        self.selectAllButton = QPushButton("Select All >>", self)
+        self.verticalLayout.insertWidget(1, self.selectAllButton)
+        self.selectAllButton.clicked.connect(self.selectAllBots)
+
         self.window = parent
         botnames = []
         self.listBots = {}
@@ -95,6 +100,19 @@ class Battle(QDialog, Ui_Dialog):
             pickler = pickle.Pickler(file)
             pickler.dump(dico)
         file.close()
+
+
+    def selectAllBots(self):
+        selected_bots = set()
+
+        for i in range(self.listWidget_2.count()):
+            selected_bots.add(self.listWidget_2.item(i).text())
+
+        for i in range(self.listWidget.count()):
+            bot_name = self.listWidget.item(i).text()
+
+            if bot_name not in selected_bots:
+                self.listWidget_2.addItem(bot_name)
        
 
 
