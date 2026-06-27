@@ -9,12 +9,28 @@ from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF
 
 from robot import Robot
 from obstacle import Obstacle
-from arena_layouts import get_layout, get_layout_names
+from arena_layouts import (
+    GRID_STEP,
+    ROBOT_SIZE,
+    SPAWN_SAFETY_MARGIN,
+    count_free_spawn_positions,
+    get_compatible_layout_names,
+    get_layout,
+    get_layout_names,
+)
 from outPrint import outPrint
 
 class Graph(QGraphicsScene):
     
-    def __init__(self, parent, width, height, layout_name=None, seed=None):
+    def __init__(
+        self,
+        parent,
+        width,
+        height,
+        layout_name=None,
+        seed=None,
+        required_spawn_positions=1,
+    ):
         QGraphicsScene.__init__(self,  parent)
         self.setSceneRect(0, 0, width, height)
         self.Parent = parent
@@ -23,6 +39,7 @@ class Graph(QGraphicsScene):
         self.width = width
         self.height = height
         self.obstacles = []
+        self.requiredSpawnPositions = required_spawn_positions
 
         # A dedicated generator makes the selected layout and robot spawn
         # positions reproducible when the same seed is used.
@@ -152,9 +169,24 @@ class Graph(QGraphicsScene):
         
     def __selectLayout(self, layout_name):
         available_layouts = get_layout_names()
+        compatible_layouts = get_compatible_layout_names(
+            self.width,
+            self.height,
+            self.requiredSpawnPositions,
+        )
 
         if layout_name is None:
-            return self.randomGenerator.choice(available_layouts)
+            if not compatible_layouts:
+                raise ValueError(
+                    "No arena layout has enough spawn positions for "
+                    "{} robots in a {}x{} arena.".format(
+                        self.requiredSpawnPositions,
+                        self.width,
+                        self.height,
+                    )
+                )
+
+            return self.randomGenerator.choice(compatible_layouts)
 
         if layout_name not in available_layouts:
             available = ", ".join(available_layouts)
@@ -162,6 +194,21 @@ class Graph(QGraphicsScene):
                 "Unknown arena layout '{}'. Available layouts: {}".format(
                     layout_name,
                     available,
+                )
+            )
+
+        if layout_name not in compatible_layouts:
+            free_positions = count_free_spawn_positions(
+                layout_name,
+                self.width,
+                self.height,
+            )
+            raise ValueError(
+                "Arena layout '{}' has {} valid spawn positions, but "
+                "the battle requires {}.".format(
+                    layout_name,
+                    free_positions,
+                    self.requiredSpawnPositions,
                 )
             )
 
@@ -211,23 +258,20 @@ class Graph(QGraphicsScene):
         return False
 
     def getGrid(self):
-        w = int(self.width / 80)
-        h = int(self.height / 80)
+        w = int(self.width / GRID_STEP)
+        h = int(self.height / GRID_STEP)
         positions = []
-
-        robot_size = 60
-        safety_margin = 12
 
         for i in range(w):
             for j in range(h):
-                x = (i + 0.5) * 80
-                y = (j + 0.5) * 80
+                x = (i + 0.5) * GRID_STEP
+                y = (j + 0.5) * GRID_STEP
 
-                spawn_area = QRectF(x, y, robot_size, robot_size).adjusted(
-                    -safety_margin,
-                    -safety_margin,
-                    safety_margin,
-                    safety_margin,
+                spawn_area = QRectF(x, y, ROBOT_SIZE, ROBOT_SIZE).adjusted(
+                    -SPAWN_SAFETY_MARGIN,
+                    -SPAWN_SAFETY_MARGIN,
+                    SPAWN_SAFETY_MARGIN,
+                    SPAWN_SAFETY_MARGIN,
                 )
 
                 blocked = any(

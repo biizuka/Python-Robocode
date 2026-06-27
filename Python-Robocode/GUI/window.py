@@ -259,6 +259,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.height,
                 layout_name=self.forcedArenaLayout,
                 seed=battle_seed,
+                required_spawn_positions=len(self.botList),
             )
         except ValueError as error:
             QMessageBox.critical(self, "Arena configuration error", str(error))
