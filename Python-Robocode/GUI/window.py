@@ -8,6 +8,7 @@ import os
 import pickle
 import re
 import csv
+import random
 from datetime import datetime
 from importlib import reload
 
@@ -183,6 +184,26 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         self.competitionStartTime = datetime.now()
 
+        seed_from_environment = os.environ.get("ROBOCODE_ARENA_SEED")
+        if seed_from_environment is not None:
+            try:
+                self.competitionSeed = int(seed_from_environment)
+            except ValueError:
+                QMessageBox.warning(
+                    self,
+                    "Invalid arena seed",
+                    "ROBOCODE_ARENA_SEED must be an integer.",
+                )
+                return
+        else:
+            self.competitionSeed = random.SystemRandom().randrange(0, 2 ** 32)
+
+        self.forcedArenaLayout = os.environ.get("ROBOCODE_ARENA_LAYOUT") or None
+
+        print("Competition arena seed: {}".format(self.competitionSeed))
+        if self.forcedArenaLayout is not None:
+            print("Forced arena layout: {}".format(self.forcedArenaLayout))
+
         self.startBattle()
 
     def startBattle(self):
@@ -229,7 +250,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.sceneMenu = QGraphicsScene()
         self.graphicsView_2.setScene(self.sceneMenu)
 
-        self.scene = Graph(self, self.width, self.height)
+        battle_seed = self.competitionSeed + self.countBattle - 1
+
+        try:
+            self.scene = Graph(
+                self,
+                self.width,
+                self.height,
+                layout_name=self.forcedArenaLayout,
+                seed=battle_seed,
+            )
+        except ValueError as error:
+            QMessageBox.critical(self, "Arena configuration error", str(error))
+            self.countBattle = 0
+            return False
+
         self.graphicsView.setScene(self.scene)
 
         self.scene.AddRobots(self.botList)

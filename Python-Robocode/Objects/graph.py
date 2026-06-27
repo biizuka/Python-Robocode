@@ -9,11 +9,12 @@ from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF
 
 from robot import Robot
 from obstacle import Obstacle
+from arena_layouts import get_layout, get_layout_names
 from outPrint import outPrint
 
 class Graph(QGraphicsScene):
     
-    def __init__(self,  parent, width,  height):
+    def __init__(self, parent, width, height, layout_name=None, seed=None):
         QGraphicsScene.__init__(self,  parent)
         self.setSceneRect(0, 0, width, height)
         self.Parent = parent
@@ -23,9 +24,29 @@ class Graph(QGraphicsScene):
         self.height = height
         self.obstacles = []
 
+        # A dedicated generator makes the selected layout and robot spawn
+        # positions reproducible when the same seed is used.
+        if seed is None:
+            seed = random.SystemRandom().randrange(0, 2 ** 32)
+
+        self.layoutSeed = seed
+        self.randomGenerator = random.Random(seed)
+        self.layoutName = self.__selectLayout(layout_name)
+
         self.setTiles()
         self.setObstacles()
         self.grid = self.getGrid()
+
+        message = "Arena layout: {} | battle seed: {}".format(
+            self.layoutName,
+            self.layoutSeed,
+        )
+        print(message)
+
+        try:
+            self.Parent.statusbar.showMessage(message)
+        except AttributeError:
+            pass
 
         
     def AddRobots(self, botList):
@@ -35,7 +56,7 @@ class Graph(QGraphicsScene):
         self.aliveBots = []
         self.deadBots = []
         try:
-            posList = random.sample(self.grid, len(botList))
+            posList = self.randomGenerator.sample(self.grid, len(botList))
             for bot in botList:
                 try:
                     robot = bot(self.sceneRect().size(), self, str(bot))
@@ -129,13 +150,32 @@ class Graph(QGraphicsScene):
         bottom.name = 'bottom'
         self.addItem(bottom)
         
+    def __selectLayout(self, layout_name):
+        available_layouts = get_layout_names()
+
+        if layout_name is None:
+            return self.randomGenerator.choice(available_layouts)
+
+        if layout_name not in available_layouts:
+            available = ", ".join(available_layouts)
+            raise ValueError(
+                "Unknown arena layout '{}'. Available layouts: {}".format(
+                    layout_name,
+                    available,
+                )
+            )
+
+        return layout_name
+
+    def getLayoutName(self):
+        return self.layoutName
+
+    def getLayoutSeed(self):
+        return self.layoutSeed
+
     def setObstacles(self):
         # x, y, width and height are percentages of the arena.
-        layout = [
-            ("central", 0.46, 0.28, 0.08, 0.44),
-            ("upper_left", 0.16, 0.18, 0.22, 0.08),
-            ("lower_right", 0.62, 0.74, 0.22, 0.08),
-        ]
+        layout = get_layout(self.layoutName)
 
         for obstacle_id, rx, ry, rw, rh in layout:
             obstacle = Obstacle(
