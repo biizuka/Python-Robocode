@@ -5,9 +5,10 @@ import time, os, random
 
 from PyQt6.QtWidgets import QGraphicsScene, QMessageBox, QGraphicsRectItem
 from PyQt6.QtGui import QPixmap, QColor, QBrush
-from PyQt6.QtCore import Qt, QPointF, QRectF
+from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF
 
 from robot import Robot
+from obstacle import Obstacle
 from outPrint import outPrint
 
 class Graph(QGraphicsScene):
@@ -20,8 +21,11 @@ class Graph(QGraphicsScene):
         #self.Parent.graphicsView.centerOn(250, 250)
         self.width = width
         self.height = height
-        self.grid = self.getGrid()
+        self.obstacles = []
+
         self.setTiles()
+        self.setObstacles()
+        self.grid = self.getGrid()
 
         
     def AddRobots(self, botList):
@@ -125,11 +129,73 @@ class Graph(QGraphicsScene):
         bottom.name = 'bottom'
         self.addItem(bottom)
         
+    def setObstacles(self):
+        # x, y, width and height are percentages of the arena.
+        layout = [
+            ("central", 0.46, 0.28, 0.08, 0.44),
+            ("upper_left", 0.16, 0.18, 0.22, 0.08),
+            ("lower_right", 0.62, 0.74, 0.22, 0.08),
+        ]
+
+        for obstacle_id, rx, ry, rw, rh in layout:
+            obstacle = Obstacle(
+                obstacle_id,
+                self.width * rx,
+                self.height * ry,
+                self.width * rw,
+                self.height * rh,
+            )
+            self.obstacles.append(obstacle)
+            self.addItem(obstacle)
+
+    def isRadarBlocked(self, start, end):
+        sight_line = QLineF(start, end)
+
+        for obstacle in self.obstacles:
+            if not obstacle.blocks_radar:
+                continue
+
+            rect = obstacle.sceneBoundingRect()
+            edges = (
+                QLineF(rect.topLeft(), rect.topRight()),
+                QLineF(rect.topRight(), rect.bottomRight()),
+                QLineF(rect.bottomRight(), rect.bottomLeft()),
+                QLineF(rect.bottomLeft(), rect.topLeft()),
+            )
+
+            for edge in edges:
+                intersection_type, _ = sight_line.intersects(edge)
+                if intersection_type == QLineF.IntersectionType.BoundedIntersection:
+                    return True
+
+        return False
+
     def getGrid(self):
-        w = int(self.width/80)
-        h = int(self.height/80)
-        l = []
+        w = int(self.width / 80)
+        h = int(self.height / 80)
+        positions = []
+
+        robot_size = 60
+        safety_margin = 12
+
         for i in range(w):
             for j in range(h):
-                l.append(QPointF((i+0.5)*80, (j+0.5)*80))
-        return l
+                x = (i + 0.5) * 80
+                y = (j + 0.5) * 80
+
+                spawn_area = QRectF(x, y, robot_size, robot_size).adjusted(
+                    -safety_margin,
+                    -safety_margin,
+                    safety_margin,
+                    safety_margin,
+                )
+
+                blocked = any(
+                    spawn_area.intersects(obstacle.sceneBoundingRect())
+                    for obstacle in self.obstacles
+                )
+
+                if not blocked:
+                    positions.append(QPointF(x, y))
+
+        return positions

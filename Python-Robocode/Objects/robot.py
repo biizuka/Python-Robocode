@@ -18,6 +18,7 @@ from physics import physics
 from bullet import Bullet
 from radarField import radarField
 from animation import animation
+from obstacle import Obstacle
 
 class Robot(QGraphicsItemGroup):
     
@@ -269,7 +270,10 @@ class Robot(QGraphicsItemGroup):
                 
             #collisions
             for item in set(self.__base.collidingItems(Qt.ItemSelectionMode.IntersectsItemShape)) - self.__items:
-                if isinstance(item, QGraphicsRectItem):
+                if isinstance(item, Obstacle):
+                    #internal obstacle collision
+                    self.__obstacleRebound(item)
+                elif isinstance(item, QGraphicsRectItem):
                     #wall Collision
                     self.__wallRebound(item)
                 elif isinstance(item, Robot):
@@ -509,6 +513,55 @@ class Robot(QGraphicsItemGroup):
     def __getRadarRotation(self,  alpha):
         return self.__radar.rotation() + alpha
     
+    def __obstacleRebound(self, obstacle):
+        self.reset()
+
+        robot_rect = self.__base.sceneBoundingRect()
+        obstacle_rect = obstacle.sceneBoundingRect()
+        overlap = robot_rect.intersected(obstacle_rect)
+
+        x = 0
+        y = 0
+        side = "unknown"
+        padding = self.__physics.step * 1.1
+
+        if overlap.isValid() and not overlap.isEmpty():
+            if overlap.width() < overlap.height():
+                if robot_rect.center().x() < obstacle_rect.center().x():
+                    x = -(overlap.width() + padding)
+                    side = "left"
+                else:
+                    x = overlap.width() + padding
+                    side = "right"
+            else:
+                if robot_rect.center().y() < obstacle_rect.center().y():
+                    y = -(overlap.height() + padding)
+                    side = "top"
+                else:
+                    y = overlap.height() + padding
+                    side = "bottom"
+        else:
+            angle = self.__base.rotation()
+            x = math.sin(math.radians(angle)) * padding
+            y = -math.cos(math.radians(angle)) * padding
+
+        self.setPos(self.pos().x() + x, self.pos().y() + y)
+        self.__changeHealth(self, -1)
+        self.__lastHitBy = None
+        self.stop()
+
+        handler = getattr(self, "onHitObstacle", None)
+        if callable(handler):
+            try:
+                handler(obstacle.obstacle_id, side)
+            except:
+                traceback.print_exc()
+                exit(-1)
+
+        animation = self.__physics.makeAnimation()
+        if animation != []:
+            self.__currentAnimation = animation
+
     def __wallRebound(self, item):
         self.reset()
         if item.name == 'left':
@@ -595,6 +648,10 @@ class Robot(QGraphicsItemGroup):
         
  
     def __targetSeen(self, target):
+        scanner = target.robot
+        if self.__parent.isRadarBlocked(scanner.getPosition(), self.getPosition()):
+            return
+
         self.stop()
         anim = target.robot.__currentAnimation
         target.robot.__physics.animation = target.robot.__targetAnimation
