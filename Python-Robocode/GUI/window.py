@@ -28,6 +28,7 @@ from battle import Battle
 from robot import Robot
 from RobotInfo import RobotInfo
 from statistic import statistic
+from battle_rules import describe_battle_rules, normalize_battle_rules
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -45,7 +46,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.competitionStartTime = None
 
         # Configuração visual da tabela de resultados
-        self.tableWidget.setColumnCount(7)
+        self.tableWidget.setColumnCount(8)
         self.tableWidget.setHorizontalHeaderLabels([
             "Rank",
             "Name",
@@ -53,7 +54,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             "2nd",
             "3rd",
             "Points",
-            "Kills"
+            "Kills",
+            "Idle penalties"
         ])
 
         self.tableWidget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -128,6 +130,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 i, 6, self.createResultItem(value.kills, rank)
             )
 
+            self.tableWidget.setItem(
+                i, 7, self.createResultItem(value.idlePenalties, rank)
+            )
+
     def reimport_class(self, cls):
         """
         Reload and reimport class "cls".
@@ -150,7 +156,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 unpickler = pickle.Unpickler(file)
                 dico = unpickler.load()
                 botList = [self.reimport_class(bot) for bot in dico["botList"]]
-                self.setUpBattle(dico["width"], dico["height"], botList)
+                self.setUpBattle(
+                    dico["width"],
+                    dico["height"],
+                    botList,
+                    dico.get("battleRules"),
+                )
         else:
             print("No last arena found.")
         
@@ -164,11 +175,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             self.timer.stop()
             self.scene.killAllRobots()
-            self.scene.battleFinished()
+            self.scene.battleFinished("terminated")
         except:
             pass
 
-    def setUpBattle(self, width, height, botList):
+    def setUpBattle(self, width, height, botList, battleRules=None):
         self.tableWidget.clearContents()
         self.tableWidget.hide()
         self.graphicsView.show()
@@ -176,6 +187,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.width = width
         self.height = height
         self.botList = botList
+        self.battleRules = normalize_battle_rules(battleRules)
 
         self.statisticDico = {}
 
@@ -201,6 +213,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.forcedArenaLayout = os.environ.get("ROBOCODE_ARENA_LAYOUT") or None
 
         print("Competition arena seed: {}".format(self.competitionSeed))
+        print("Battle rules: {}".format(describe_battle_rules(self.battleRules)))
         if self.forcedArenaLayout is not None:
             print("Forced arena layout: {}".format(self.forcedArenaLayout))
 
@@ -247,6 +260,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             f"Battle {self.countBattle} of {total_batalhas}"
         )
 
+        total_battles = self.spinBox_battle_num.value()
+        self.setWindowTitle(
+            "Python-Robocode - Battle {} of {}".format(
+                self.countBattle,
+                total_battles,
+            )
+        )
+        self.statusBar().showMessage(
+            "Battle {} of {}".format(self.countBattle, total_battles)
+        )
+
         self.sceneMenu = QGraphicsScene()
         self.graphicsView_2.setScene(self.sceneMenu)
 
@@ -260,6 +284,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 layout_name=self.forcedArenaLayout,
                 seed=battle_seed,
                 required_spawn_positions=len(self.botList),
+                battle_rules=self.battleRules,
             )
         except ValueError as error:
             QMessageBox.critical(self, "Arena configuration error", str(error))
@@ -345,6 +370,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 f"Tournament finished - {total_batalhas} battles completed"
             )
 
+            total_battles = self.spinBox_battle_num.value()
+            self.setWindowTitle("Python-Robocode - Tournament finished")
+            self.statusBar().showMessage(
+                "Tournament finished - {} battles completed".format(
+                    total_battles
+                )
+            )
+
             self.countBattle = 0
             self.timer.stop()
 
@@ -371,6 +404,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 -item[1].second,
                 -item[1].third,
                 -item[1].kills,
+                item[1].idlePenalties,
                 item[0]
             )
         )
@@ -403,7 +437,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 "2nd",
                 "3rd",
                 "Points",
-                "Kills"
+                "Kills",
+                "Idle penalties"
             ])
 
             for i, (name, value) in enumerate(ranking):
@@ -416,7 +451,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     value.second,
                     value.third,
                     value.points,
-                    value.kills
+                    value.kills,
+                    value.idlePenalties
                 ])
 
         print(f"Ranking CSV generated: {file_path}")

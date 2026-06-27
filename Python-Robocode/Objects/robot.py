@@ -33,6 +33,9 @@ class Robot(QGraphicsItemGroup):
         self.__radarLock = "Free"
         self.__kills = 0 # the number of kills
         self.__lastHitBy = None # the robot hit me at the last moment
+        self.__lastActivityTime = None
+        self.__lastInactivityPenaltyTime = None
+        self.__inactivityPenalties = 0
         
         self.info = None # RobotInfo (should be set in window.py::addRobotInfo())
         
@@ -210,6 +213,7 @@ class Robot(QGraphicsItemGroup):
         """
         if self.__health <= 0:
             self.__death()
+            return
         
         if self.__currentAnimation == []:
             try:
@@ -238,6 +242,9 @@ class Robot(QGraphicsItemGroup):
         if i ==1:
             try:
                 command = self.__currentAnimation.pop() #load animation
+
+                if self.__commandHasActivity(command):
+                    self.__registerActivity()
 
                 #translation
                 dx, dy= self.__getTranslation(command["move"])
@@ -475,6 +482,75 @@ class Robot(QGraphicsItemGroup):
 
     def getKills(self):
         return self.__kills
+
+    def getHealth(self):
+        """Return the current robot health for engine ranking rules."""
+        return self.__health
+
+    def getInactivityPenalties(self):
+        """Return how many inactivity penalties this robot has received."""
+        return self.__inactivityPenalties
+
+    def resetActivityTimer(self, now=None):
+        """Start or reset the inactivity clock."""
+        if now is None:
+            now = time.monotonic()
+
+        self.__lastActivityTime = now
+        self.__lastInactivityPenaltyTime = None
+
+    def getIdleDuration(self, now=None):
+        """Return the number of seconds since the last executed action."""
+        if now is None:
+            now = time.monotonic()
+
+        if self.__lastActivityTime is None:
+            return 0.0
+
+        return max(0.0, now - self.__lastActivityTime)
+
+    def shouldReceiveInactivityPenalty(self, now, timeout, interval):
+        """Return whether an inactivity penalty is due at this moment."""
+        if timeout <= 0 or self.__lastActivityTime is None:
+            return False
+
+        idle_duration = now - self.__lastActivityTime
+        if idle_duration < timeout:
+            return False
+
+        if self.__lastInactivityPenaltyTime is None:
+            return True
+
+        return now - self.__lastInactivityPenaltyTime >= interval
+
+    def applyInactivityPenalty(self, damage, idle_seconds, now=None):
+        """Apply environmental damage caused by inactivity."""
+        if now is None:
+            now = time.monotonic()
+
+        self.__lastInactivityPenaltyTime = now
+        self.__inactivityPenalties += 1
+
+        # Inactivity damage must not award a kill to the last attacker.
+        self.__lastHitBy = None
+        self.__changeHealth(self, -damage)
+
+        message = "Inactive for {:.1f}s: -{} HP (penalty #{})".format(
+            idle_seconds,
+            damage,
+            self.__inactivityPenalties,
+        )
+        print("{}: {}".format(self.__repr__(), message))
+        self.rPrint(message)
+
+        handler = getattr(self, "onInactivityPenalty", None)
+        if callable(handler):
+            try:
+                handler(damage, idle_seconds, self.__inactivityPenalties)
+            except Exception:
+                traceback.print_exc()
+
+        return self.__health
         
     def rPrint(self, msg):
         if self.info is not None:
@@ -488,6 +564,21 @@ class Robot(QGraphicsItemGroup):
     ###end of functions accessable from outside###
             
     # Calculus & Private Methods
+    def __commandHasActivity(self, command):
+        """Return whether a command represents a meaningful robot action."""
+        return (
+            command.get("move", 0) != 0
+            or command.get("turn", 0) != 0
+            or command.get("gunTurn", 0) != 0
+            or command.get("radarTurn", 0) != 0
+            or command.get("fire", 0) != 0
+        )
+
+    def __registerActivity(self):
+        now = time.monotonic()
+        self.__lastActivityTime = now
+        self.__lastInactivityPenaltyTime = None
+
     def __getTranslation(self, step):
         angle = self.__base.rotation()
         pos = self.pos()
@@ -711,7 +802,9 @@ class Robot(QGraphicsItemGroup):
         self.__items.remove(item)
 
     def __death(self):
-        
+        if self not in self.__parent.aliveBots:
+            return
+
         try:
             if self.__lastHitBy is not None:
                 self.__lastHitBy.__kills += 1

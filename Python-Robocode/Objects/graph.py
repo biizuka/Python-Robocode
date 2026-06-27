@@ -1,10 +1,13 @@
 #! /usr/bin/python
-#-*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 
-import time, os, random
+import math
+import os
+import random
+import time
 
 from PyQt6.QtWidgets import QGraphicsScene, QMessageBox, QGraphicsRectItem
-from PyQt6.QtGui import QPixmap, QColor, QBrush
+from PyQt6.QtGui import QPixmap, QBrush
 from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF
 
 from robot import Robot
@@ -18,10 +21,11 @@ from arena_layouts import (
     get_layout,
     get_layout_names,
 )
-from outPrint import outPrint
+from battle_rules import describe_battle_rules, normalize_battle_rules
+
 
 class Graph(QGraphicsScene):
-    
+
     def __init__(
         self,
         parent,
@@ -30,19 +34,28 @@ class Graph(QGraphicsScene):
         layout_name=None,
         seed=None,
         required_spawn_positions=1,
+        battle_rules=None,
     ):
-        QGraphicsScene.__init__(self,  parent)
+        QGraphicsScene.__init__(self, parent)
         self.setSceneRect(0, 0, width, height)
         self.Parent = parent
-        
-        #self.Parent.graphicsView.centerOn(250, 250)
+
         self.width = width
         self.height = height
         self.obstacles = []
         self.requiredSpawnPositions = required_spawn_positions
+        self.battleRules = normalize_battle_rules(battle_rules)
 
-        # A dedicated generator makes the selected layout and robot spawn
-        # positions reproducible when the same seed is used.
+        self.aliveBots = []
+        self.deadBots = []
+        self.battleEnded = False
+        self.lastBattleFinishReason = None
+        self.battleStartTime = None
+        self.lastDisplayedSecond = None
+        self.timeoutTieBreakers = {}
+
+        # A dedicated generator makes the selected layout, spawn positions,
+        # and timeout tie-breakers reproducible when the same seed is used.
         if seed is None:
             seed = random.SystemRandom().randrange(0, 2 ** 32)
 
@@ -59,114 +72,261 @@ class Graph(QGraphicsScene):
             self.layoutSeed,
         )
         print(message)
+        print("Battle rules: {}".format(describe_battle_rules(self.battleRules)))
+        self.__showStatus(message)
 
-        try:
-            self.Parent.statusbar.showMessage(message)
-        except AttributeError:
-            pass
-
-        
     def AddRobots(self, botList):
-        
-        """
-        """
+        """Create and place all robots in valid arena positions."""
         self.aliveBots = []
         self.deadBots = []
+        self.timeoutTieBreakers = {}
+
         try:
             posList = self.randomGenerator.sample(self.grid, len(botList))
+
             for bot in botList:
                 try:
                     robot = bot(self.sceneRect().size(), self, str(bot))
                     self.aliveBots.append(robot)
                     self.addItem(robot)
                     robot.setPos(posList.pop())
-                    self.Parent.addRobotInfo(robot)
-                except Exception as e:
-                    print("Problem with bot file '{}': {}".format(bot, str(e)))
 
-            self.Parent.battleMenu.close()
+                    # Used only when every other timeout criterion is tied.
+                    self.timeoutTieBreakers[id(robot)] = self.randomGenerator.random()
+
+                    self.Parent.addRobotInfo(robot)
+                except Exception as error:
+                    print("Problem with bot file '{}': {}".format(bot, str(error)))
+
+            try:
+                self.Parent.battleMenu.close()
+            except AttributeError:
+                pass
+
         except ValueError:
-            QMessageBox.about(self.Parent, "Alert", "Too many Bots for the map's size!")
-        except AttributeError:
+            QMessageBox.about(
+                self.Parent,
+                "Alert",
+                "Too many Bots for the map's size!",
+            )
+
+    def advance(self):
+        """Advance the scene and enforce time and inactivity rules."""
+        if self.battleEnded:
+            return
+
+        now = time.monotonic()
+
+        # Start the clock only when the first simulation frame is executed.
+        # Loading the arena and creating widgets do not consume battle time.
+        if self.battleStartTime is None:
+            self.battleStartTime = now
+            for robot in self.aliveBots:
+                robot.resetActivityTimer(now)
+            self.__updateStatus(now, force=True)
+
+        QGraphicsScene.advance(self)
+
+        # A robot death may have finished the battle during scene advancement.
+        if self.battleEnded:
+            return
+
+        now = time.monotonic()
+        elapsed = now - self.battleStartTime
+        time_limit = self.battleRules["time_limit_seconds"]
+
+        if time_limit > 0 and elapsed >= time_limit:
+            print("Battle time limit reached after {} seconds.".format(time_limit))
+            self.battleFinished("time_limit")
+            return
+
+        self.__applyInactivityPenalties(now)
+        self.__updateStatus(now)
+
+    def __applyInactivityPenalties(self, now):
+        timeout = self.battleRules["inactivity_timeout_seconds"]
+        if timeout == 0:
+            return
+
+        interval = self.battleRules["inactivity_penalty_interval_seconds"]
+        damage = self.battleRules["inactivity_damage"]
+
+        for robot in list(self.aliveBots):
+            if robot.shouldReceiveInactivityPenalty(now, timeout, interval):
+                idle_seconds = robot.getIdleDuration(now)
+                robot.applyInactivityPenalty(damage, idle_seconds, now)
+
+    def __updateStatus(self, now, force=False):
+        if self.battleStartTime is None:
+            return
+
+        elapsed = now - self.battleStartTime
+        time_limit = self.battleRules["time_limit_seconds"]
+
+        if time_limit == 0:
+            display_second = int(elapsed)
+            time_text = "unlimited"
+        else:
+            remaining = max(0, int(math.ceil(time_limit - elapsed)))
+            display_second = remaining
+            minutes, seconds = divmod(remaining, 60)
+            time_text = "{:02d}:{:02d}".format(minutes, seconds)
+
+        if not force and display_second == self.lastDisplayedSecond:
+            return
+
+        self.lastDisplayedSecond = display_second
+
+        inactivity_timeout = self.battleRules["inactivity_timeout_seconds"]
+        if inactivity_timeout == 0:
+            inactivity_text = "idle penalty off"
+        else:
+            inactivity_text = "idle {}s / -{} HP".format(
+                inactivity_timeout,
+                self.battleRules["inactivity_damage"],
+            )
+
+        self.__showStatus(
+            "Arena: {} | Time left: {} | {}".format(
+                self.layoutName,
+                time_text,
+                inactivity_text,
+            )
+        )
+
+    def __showStatus(self, message):
+        try:
+            self.Parent.statusBar().showMessage(message)
+            return
+        except (AttributeError, RuntimeError):
             pass
+
+        try:
+            self.Parent.statusbar.showMessage(message)
+        except (AttributeError, RuntimeError):
+            pass
+
+    def __rankRemainingRobots(self):
+        """Return remaining robots from worst to best for final placement."""
+        return sorted(
+            self.aliveBots,
+            key=lambda robot: (
+                robot.getHealth(),
+                robot.getKills(),
+                -robot.getInactivityPenalties(),
+                self.timeoutTieBreakers.get(id(robot), 0.0),
+            ),
+        )
 
     def killAllRobots(self):
+        """Remove all robots while preserving a deterministic placement."""
         print("kill all robots")
+
         try:
-            self.aliveBots.sort(key=lambda r: r._Robot__health)
-            for r in self.aliveBots:
-                self.deadBots.append(r)
-                self.removeItem(r)
+            for robot in self.__rankRemainingRobots():
+                self.deadBots.append(robot)
+                self.removeItem(robot)
             self.aliveBots = []
-        except:
+        except Exception:
             pass
 
+    def battleFinished(self, reason="last_robot"):
+        """Finish a battle and update tournament statistics."""
+        if self.battleEnded:
+            return
 
-    def  battleFinished(self):
-        print("battle terminated")
+        self.battleEnded = True
+        self.lastBattleFinishReason = reason
+
         try:
-            self.deadBots.append(self.aliveBots[0])
-            self.removeItem(self.aliveBots[0])
-        except IndexError:
+            self.Parent.timer.stop()
+        except (AttributeError, RuntimeError):
             pass
-        j = len(self.deadBots)
-        
-        
-        for i in range(j):
-            print("N° {}:{}".format(j - i, self.deadBots[i]))
-            if j-i == 1: #first place
-                self.Parent.statisticDico[repr(self.deadBots[i])].first += 1
-            if j-i == 2: #2nd place
-                self.Parent.statisticDico[repr(self.deadBots[i])].second += 1
-            if j-i ==3:#3rd place
-                self.Parent.statisticDico[repr(self.deadBots[i])].third += 1
-                
-            self.Parent.statisticDico[repr(self.deadBots[i])].points += i
-            self.Parent.statisticDico[repr(self.deadBots[i])].kills += self.deadBots[i].getKills()
-                
-        self.Parent.chooseAction()       
 
-                    
+        # A normal battle has one survivor. A timeout or manual termination
+        # can leave several robots, which are ranked by health, kills, and
+        # inactivity penalties.
+        for robot in self.__rankRemainingRobots():
+            self.deadBots.append(robot)
+            try:
+                self.removeItem(robot)
+            except RuntimeError:
+                pass
+
+        self.aliveBots = []
+
+        reason_labels = {
+            "last_robot": "last robot standing",
+            "time_limit": "time limit reached",
+            "terminated": "manually terminated",
+        }
+        reason_text = reason_labels.get(reason, reason)
+        print("battle terminated: {}".format(reason_text))
+
+        total_robots = len(self.deadBots)
+
+        for index, robot in enumerate(self.deadBots):
+            place = total_robots - index
+            print("N° {}: {}".format(place, robot))
+
+            stats = self.Parent.statisticDico[repr(robot)]
+
+            if place == 1:
+                stats.first += 1
+            if place == 2:
+                stats.second += 1
+            if place == 3:
+                stats.third += 1
+
+            stats.points += index
+            stats.kills += robot.getKills()
+            stats.idlePenalties += robot.getInactivityPenalties()
+
+        self.__showStatus("Battle finished: {}".format(reason_text))
+        self.Parent.chooseAction()
+
     def setTiles(self):
-        #background
+        # Background
         brush = QBrush()
         pix = QPixmap(os.getcwd() + "/robotImages/tile.png")
         brush.setTexture(pix)
         brush.setStyle(Qt.BrushStyle.TexturePattern)
         self.setBackgroundBrush(brush)
-        
-        #wall
-        #left
+
+        # Left wall
         left = QGraphicsRectItem()
         pix = QPixmap(os.getcwd() + "/robotImages/tileVert.png")
         left.setRect(QRectF(0, 0, pix.width(), self.height))
         brush.setTexture(pix)
         brush.setStyle(Qt.BrushStyle.TexturePattern)
         left.setBrush(brush)
-        left.name = 'left'
+        left.name = "left"
         self.addItem(left)
-        #right
+
+        # Right wall
         right = QGraphicsRectItem()
         right.setRect(self.width - pix.width(), 0, pix.width(), self.height)
         right.setBrush(brush)
-        right.name = 'right'
+        right.name = "right"
         self.addItem(right)
-        #top
+
+        # Top wall
         top = QGraphicsRectItem()
         pix = QPixmap(os.getcwd() + "/robotImages/tileHori.png")
         top.setRect(QRectF(0, 0, self.width, pix.height()))
         brush.setTexture(pix)
         brush.setStyle(Qt.BrushStyle.TexturePattern)
         top.setBrush(brush)
-        top.name = 'top'
+        top.name = "top"
         self.addItem(top)
-        #bottom
+
+        # Bottom wall
         bottom = QGraphicsRectItem()
-        bottom.setRect(0 ,self.height - pix.height() , self.width, pix.height())
+        bottom.setRect(0, self.height - pix.height(), self.width, pix.height())
         bottom.setBrush(brush)
-        bottom.name = 'bottom'
+        bottom.name = "bottom"
         self.addItem(bottom)
-        
+
     def __selectLayout(self, layout_name):
         available_layouts = get_layout_names()
         compatible_layouts = get_compatible_layout_names(
@@ -221,16 +381,16 @@ class Graph(QGraphicsScene):
         return self.layoutSeed
 
     def setObstacles(self):
-        # x, y, width and height are percentages of the arena.
+        # x, y, width, and height are percentages of the arena.
         layout = get_layout(self.layoutName)
 
-        for obstacle_id, rx, ry, rw, rh in layout:
+        for obstacle_id, relative_x, relative_y, relative_width, relative_height in layout:
             obstacle = Obstacle(
                 obstacle_id,
-                self.width * rx,
-                self.height * ry,
-                self.width * rw,
-                self.height * rh,
+                self.width * relative_x,
+                self.height * relative_y,
+                self.width * relative_width,
+                self.height * relative_height,
             )
             self.obstacles.append(obstacle)
             self.addItem(obstacle)
@@ -258,14 +418,14 @@ class Graph(QGraphicsScene):
         return False
 
     def getGrid(self):
-        w = int(self.width / GRID_STEP)
-        h = int(self.height / GRID_STEP)
+        columns = int(self.width / GRID_STEP)
+        rows = int(self.height / GRID_STEP)
         positions = []
 
-        for i in range(w):
-            for j in range(h):
-                x = (i + 0.5) * GRID_STEP
-                y = (j + 0.5) * GRID_STEP
+        for column in range(columns):
+            for row in range(rows):
+                x = (column + 0.5) * GRID_STEP
+                y = (row + 0.5) * GRID_STEP
 
                 spawn_area = QRectF(x, y, ROBOT_SIZE, ROBOT_SIZE).adjusted(
                     -SPAWN_SAFETY_MARGIN,
