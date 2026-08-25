@@ -25,6 +25,7 @@ from PyQt6.QtGui import QColor, QBrush
 from graph import Graph
 from Ui_window import Ui_MainWindow
 from battle import Battle
+from battle_settings import BattleSettings
 from robot import Robot
 from RobotInfo import RobotInfo
 from statistic import statistic
@@ -156,6 +157,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 unpickler = pickle.Unpickler(file)
                 dico = unpickler.load()
                 botList = [self.reimport_class(bot) for bot in dico["botList"]]
+                self.spinBox_battle_num.setValue(
+                    int(dico.get("battleCount", self.spinBox_battle_num.value()))
+                )
                 self.setUpBattle(
                     dico["width"],
                     dico["height"],
@@ -217,7 +221,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         if self.forcedArenaLayout is not None:
             print("Forced arena layout: {}".format(self.forcedArenaLayout))
 
-        self.startBattle()
+        return self.startBattle()
 
     def startBattle(self):
         try:
@@ -311,10 +315,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     
     @pyqtSlot()
     def on_actionNew_triggered(self):
-        """
-        Battle Menu
-        """
-        self.battleMenu = Battle(self)
+        """Open battle settings before the robot-selection dialog."""
+        self.battleSettingsMenu = BattleSettings(self)
+
+        if not self.battleSettingsMenu.exec():
+            return
+
+        configuration = self.battleSettingsMenu.getConfiguration()
+        self.battleMenu = Battle(self, configuration)
         self.battleMenu.show()
     
     @pyqtSlot()
